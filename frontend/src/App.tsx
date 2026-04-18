@@ -51,23 +51,6 @@ function variantDotClass(status: string): string {
   return 'running'
 }
 
-function operationalSummary(variantKey: string): {
-  safetyRisk: string
-  missionSuccess: string
-  intervention: string
-} {
-  switch (variantKey) {
-    case 'best_case':
-      return { safetyRisk: 'Low', missionSuccess: 'High', intervention: 'None' }
-    case 'worst_case':
-      return { safetyRisk: 'High', missionSuccess: 'Low', intervention: 'Immediate' }
-    case 'edge_case':
-      return { safetyRisk: 'Medium', missionSuccess: 'Medium', intervention: 'Likely' }
-    default:
-      return { safetyRisk: 'Unknown', missionSuccess: 'Unknown', intervention: 'Unknown' }
-  }
-}
-
 export default function App() {
   const [scenario, setScenario] = useState('')
   const [jobId, setJobId] = useState<string | null>(null)
@@ -138,58 +121,30 @@ export default function App() {
       <div className="page-glow page-glow-a" />
       <div className="page-glow page-glow-b" />
       <header className="hero">
-        <div className="hero-copy">
-          <span className="eyebrow">Track 4 · qualitative simulation</span>
-          <h1>ScenarioSim</h1>
-          <p>
-            Turn one operational situation into three short, decision-ready outcome clips: best case, worst case,
-            and the edge path teams forget to plan for.
-          </p>
-        </div>
-        <div className="hero-card">
-          <span className="hero-card-label">What you get</span>
-          <ul>
-            <li>Three comparable video branches</li>
-            <li>Recommendation for decision-making</li>
-            <li>Track 4 export with provenance + weak labels</li>
-          </ul>
-        </div>
-        <div className="badge-row">
-          {job?.demo_mode ? (
-            <span className="badge">Demo mode · sample video URLs</span>
-          ) : (
-            <span className="badge muted">Live mode · BytePlus Seedance</span>
-          )}
-          {jobId ? (
-            <span className="badge muted">
-              Job <code style={{ fontSize: '0.85em' }}>{jobId.slice(0, 8)}…</code>
-            </span>
-          ) : null}
-        </div>
+        <h1>ScenarioSim</h1>
+        <p>Describe a scenario and generate three video outcomes.</p>
       </header>
 
       <section className="panel">
-        <label htmlFor="scenario">Scenario</label>
+        <label htmlFor="scenario" className="sr-only">
+          Scenario
+        </label>
         <textarea
           id="scenario"
           value={scenario}
           onChange={(e) => setScenario(e.target.value)}
-          placeholder="e.g. Our team must decide whether to delay launch to fix a performance regression discovered 48 hours before the keynote."
+          placeholder="Describe a scenario..."
         />
         <div className="row">
           <button type="button" className="primary" disabled={loading || scenario.trim().length < 3} onClick={onGenerate}>
-            {loading ? 'Generating…' : 'Generate outcomes'}
+            {loading ? 'Generating...' : 'Generate'}
           </button>
-          {loading ? (
-            <span className="status">
-              Status: <strong>{job?.status ?? 'starting'}</strong>
-            </span>
-          ) : null}
+          {loading ? <span className="status">{job?.status ?? 'starting'}...</span> : null}
         </div>
 
         {samples.length > 0 ? (
           <div className="samples">
-            <span>Try a sample scenario</span>
+            <span>Examples</span>
             <div className="sample-chips">
               {samples.map((s) => (
                 <button
@@ -227,58 +182,20 @@ export default function App() {
 
       {showResults && job ? (
         <section className="results">
-          <h2>Outcomes</h2>
+          <h2>Results</h2>
           {jobId ? (
             <p className="export-link">
               <a href={`${apiBase}/api/jobs/${jobId}/export`} target="_blank" rel="noreferrer">
-                Export run as JSON (Track 4 — weak labels + provenance)
+                Export JSON
               </a>
             </p>
           ) : null}
           {job.recommendation ? (
             <div className="reco">
-              <h3>Recommendation</h3>
+              <h3>Recommended</h3>
               <p>{job.recommendation}</p>
             </div>
           ) : null}
-
-          <div className="scorecard">
-            <div className="scorecard-head">
-              <div>
-                <h3>Decision summary</h3>
-                <p>Weak operational tags that help a team triage each branch quickly.</p>
-              </div>
-            </div>
-            <div className="scorecard-grid">
-              {job.variants.map((v) => {
-                const summary = operationalSummary(v.variant_key)
-                return (
-                  <article key={`${v.variant_key}-summary`} className="scorecard-item">
-                    <div className="scorecard-item-head">
-                      <strong>{v.label}</strong>
-                      <span className={`pill subtle ${v.status === 'ok' ? 'ok' : v.status === 'failed' ? 'fail' : ''}`}>
-                        {v.status}
-                      </span>
-                    </div>
-                    <dl>
-                      <div>
-                        <dt>Safety risk</dt>
-                        <dd>{summary.safetyRisk}</dd>
-                      </div>
-                      <div>
-                        <dt>Mission success</dt>
-                        <dd>{summary.missionSuccess}</dd>
-                      </div>
-                      <div>
-                        <dt>Intervention</dt>
-                        <dd>{summary.intervention}</dd>
-                      </div>
-                    </dl>
-                  </article>
-                )
-              })}
-            </div>
-          </div>
 
           <div className="grid">
             {job.variants.map((v) => {
@@ -300,9 +217,7 @@ export default function App() {
                     </div>
                   )}
                   <div className="card-body">
-                    {v.mock_fallback
-                      ? 'Fallback clip used so the branch still completes for review.'
-                      : 'Short simulated branch for comparison and review.'}
+                    {v.mock_fallback ? 'Fallback clip used for this result.' : 'Generated outcome clip.'}
                   </div>
                 </article>
               )
@@ -310,11 +225,6 @@ export default function App() {
           </div>
         </section>
       ) : null}
-
-      <p className="footer-note">
-        Async jobs; in-memory store (lost on restart). Track 4: use <strong>Export JSON</strong> for pipeline-friendly
-        bundles. Batch API: <code>POST /api/jobs/batch</code>.
-      </p>
     </div>
   )
 }
