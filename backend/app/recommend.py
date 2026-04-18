@@ -45,8 +45,18 @@ async def llm_recommendation(
     scenario: str,
     variants: list[dict[str, Any]],
 ) -> str | None:
-    if not settings.llm_api_key.strip():
-        return None
+    provider = (settings.llm_provider or "byteplus").strip().lower()
+    if provider == "byteplus":
+        if not settings.byteplus_api_key.strip():
+            return None
+        url = f"{settings.byteplus_base_url.rstrip('/')}/chat/completions"
+        api_key = settings.byteplus_api_key
+    else:
+        if not settings.llm_api_key.strip():
+            return None
+        url = f"{settings.llm_base_url.rstrip('/')}/chat/completions"
+        api_key = settings.llm_api_key
+
     payload_variants = [
         {
             "label": v.get("label"),
@@ -63,9 +73,8 @@ async def llm_recommendation(
         "No markdown headings; plain text."
     )
     user = json.dumps({"scenario": scenario, "variants": payload_variants}, ensure_ascii=False)
-    url = f"{settings.llm_base_url.rstrip('/')}/chat/completions"
     headers = {
-        "Authorization": f"Bearer {settings.llm_api_key}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
     body = {

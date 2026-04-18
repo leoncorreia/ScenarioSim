@@ -52,11 +52,14 @@ See root `.env.example`. Minimum notes:
 | --- | --- |
 | `BYTEPLUS_API_KEY` or `ARK_API_KEY` | BytePlus ModelArk key for Seedance |
 | `BYTEPLUS_BASE_URL` | Default `https://ark.ap-southeast.bytepluses.com/api/v3` |
-| `SEEDANCE_MODEL` | e.g. `seedance-1-5-pro-251215` |
+| `SEEDANCE_MODEL` | Dreamina Seedance 2.0 IDs from the [model list](https://docs.byteplus.com/en/docs/ModelArk/1330310): `dreamina-seedance-2-0-260128` or `dreamina-seedance-2-0-fast-260128` |
 | `DEMO_MODE` | `true` forces mock clips end-to-end |
 | `FALLBACK_MOCK_ON_ERROR` | `true` swaps failed variants to sample MP4s |
 | `CORS_ORIGINS` | Comma-separated allowed frontend origins |
-| `LLM_API_KEY` / `OPENAI_API_KEY` | Optional richer recommendation text (OpenAI-compatible chat) |
+| `LLM_PROVIDER` | `byteplus` (default): same `BYTEPLUS_API_KEY` and `BYTEPLUS_BASE_URL`, `POST .../chat/completions`. `openai`: use `LLM_API_KEY` + `LLM_BASE_URL`. |
+| `LLM_MODEL` | Default `seed-2-0-lite-260228` (ModelArk text model). For `openai`, use e.g. `gpt-4o-mini`. **Do not** use a Seedance video model ID here. |
+| `LLM_API_KEY` / `OPENAI_API_KEY` | Only when `LLM_PROVIDER=openai` |
+| `LLM_BASE_URL` | Only when `LLM_PROVIDER=openai` (default OpenAI v1 base) |
 
 Frontend build (production): set `VITE_API_URL` to your backend origin, e.g. `https://your-api.onrender.com` (no trailing slash).
 
@@ -92,9 +95,19 @@ git push -u origin main
 2. **Static Site**: Root directory `frontend`, build `npm install && npm run build`, publish `frontend/dist`.
 3. Add the same env vars as in Option A.
 
-## API notes
+## BytePlus / Seedance docs
 
-- Seedance is asynchronous; the adapter polls until success, failure, or timeout. See BytePlus docs: [Create task](https://docs.byteplus.com/en/docs/ModelArk/1520757), [Retrieve task](https://docs.byteplus.com/en/docs/ModelArk/1521309). If response JSON differs for your account, adjust URL extraction in `backend/app/seedance.py` (marked with TODO).
+ScenarioSim targets **Dreamina Seedance 2.0** via the ModelArk video generation API.
+
+| Topic | Doc |
+| --- | --- |
+| Model list (video IDs, **4–15 s**, **480p / 720p**, regions) | [Model list](https://docs.byteplus.com/en/docs/ModelArk/1330310) |
+| Seedance 2.0 tutorial (basic usage, `content` array, `generate_audio`, polling `succeeded` / `failed`) | [Seedance 2.0 series tutorial](https://docs.byteplus.com/en/docs/ModelArk/2291680#basic-usage) |
+| HTTP reference | [Create task](https://docs.byteplus.com/en/docs/ModelArk/1520757), [Retrieve task](https://docs.byteplus.com/en/docs/ModelArk/1521309) |
+
+**Regions (from the model list):** `ap-southeast-1` → `https://ark.ap-southeast.bytepluses.com/api/v3`; `eu-west-1` → `https://ark.eu-west.bytepluses.com/api/v3`. Set `BYTEPLUS_BASE_URL` to match the region where your key and model are enabled.
+
+Generation is asynchronous: `POST /api/jobs` returns immediately; the backend polls BytePlus until each variant finishes or times out. If the retrieve payload differs for your account, adjust URL extraction in `backend/app/seedance.py` (see TODO there).
 
 ## License
 

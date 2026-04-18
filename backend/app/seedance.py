@@ -1,11 +1,15 @@
 """
-BytePlus ModelArk / Seedance video generation adapter.
+BytePlus ModelArk / Seedance video generation (HTTP adapter).
 
-API reference (verify paths against latest docs):
-https://docs.byteplus.com/en/docs/ModelArk/1520757
-https://docs.byteplus.com/en/docs/ModelArk/1521309
+Official docs:
+- Model IDs, regions, and base URLs: https://docs.byteplus.com/en/docs/ModelArk/1330310
+- Seedance 2.0 (basic usage, content shape, polling): https://docs.byteplus.com/en/docs/ModelArk/2291680#basic-usage
+- Video API — create task: https://docs.byteplus.com/en/docs/ModelArk/1520757
+- Video API — retrieve task: https://docs.byteplus.com/en/docs/ModelArk/1521309
 
-TODO: Confirm exact JSON fields for completed tasks on your account; BytePlus may nest video URL under output/content.
+REST path used here: POST/GET {base}/contents/generations/tasks (same contract as SDK `content_generation.tasks`).
+
+TODO: Confirm completed-task JSON for your account; the video URL may be nested under output/content.
 """
 
 from __future__ import annotations
