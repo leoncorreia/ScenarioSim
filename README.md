@@ -1,0 +1,101 @@
+# ScenarioSim
+
+**Pitch:** ScenarioSim turns a short real-world situation into three quick “what if” video outcomes—best case, worst case, and an edge path—then stacks them side by side and names the trajectory that is most useful for decisions, storytelling, and alignment. It is built for demos: async jobs, clear progress, graceful fallbacks, and a deploy path that works the first time you try it.
+
+## What you get
+
+- React (Vite) + FastAPI, one scenario field, one **Generate** button.
+- Async jobs: `POST /api/jobs` returns immediately; the UI polls `GET /api/jobs/{id}`.
+- BytePlus Seedance integration behind a small adapter (create task → poll → video URL) with **demo mode** and **per-variant mock fallback** when the provider errors.
+- Three variants: **Best case**, **Worst case**, **Edge case**; recommendation block highlights the preferred outcome card.
+- No auth, in-memory job store (resets on restart).
+
+## Sample scenarios (demo)
+
+1. A startup has 30 days of runway and must choose between a risky enterprise pilot or a slower SMB growth path.
+2. A city transit agency rolls out on-demand shuttles during a major sports weekend; operations are already understaffed.
+3. A product team ships an AI feature under legal scrutiny; marketing wants to announce early, engineering wants more evals.
+
+(These also appear in the UI via `GET /api/demo-scenarios`.)
+
+## Local setup
+
+### Backend
+
+```bash
+cd backend
+python -m venv .venv
+# Windows: .venv\Scripts\activate
+# macOS/Linux: source .venv/bin/activate
+pip install -r requirements.txt
+copy ..\\.env.example .env   # or: cp ../.env.example .env — then edit keys
+uvicorn app.main:app --reload --port 8000
+```
+
+Health check: `http://127.0.0.1:8000/api/health`
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open `http://127.0.0.1:5173`. The dev server proxies `/api` to the backend on port 8000.
+
+### Environment variables
+
+See root `.env.example`. Minimum notes:
+
+| Variable | Purpose |
+| --- | --- |
+| `BYTEPLUS_API_KEY` or `ARK_API_KEY` | BytePlus ModelArk key for Seedance |
+| `BYTEPLUS_BASE_URL` | Default `https://ark.ap-southeast.bytepluses.com/api/v3` |
+| `SEEDANCE_MODEL` | e.g. `seedance-1-5-pro-251215` |
+| `DEMO_MODE` | `true` forces mock clips end-to-end |
+| `FALLBACK_MOCK_ON_ERROR` | `true` swaps failed variants to sample MP4s |
+| `CORS_ORIGINS` | Comma-separated allowed frontend origins |
+| `LLM_API_KEY` / `OPENAI_API_KEY` | Optional richer recommendation text (OpenAI-compatible chat) |
+
+Frontend build (production): set `VITE_API_URL` to your backend origin, e.g. `https://your-api.onrender.com` (no trailing slash).
+
+## GitHub repository
+
+Git is initialized in this folder. `GitHub CLI` is not required—create the remote from the GitHub website:
+
+1. New repository → name it `ScenarioSim` (or any name) → do not add a README (this project already has one).
+2. Push:
+
+```bash
+cd ScenarioSim
+git commit -m "Initial ScenarioSim MVP"
+git branch -M main
+git remote add origin https://github.com/YOUR_USER/YOUR_REPO.git
+git push -u origin main
+```
+
+## Render deployment
+
+**Option A — Blueprint (`render.yaml` in repo)**
+
+1. Push this repo to GitHub.
+2. In Render: **New** → **Blueprint** → connect the repo and apply.
+3. After the first deploy:
+   - Set **Web Service** env `CORS_ORIGINS` to your static site URL (e.g. `https://scenariosim-web.onrender.com`).
+   - Set **Static Site** env `VITE_API_URL` to the API URL (e.g. `https://scenariosim-api.onrender.com`).
+4. Trigger a **rebuild** of the static site so `VITE_API_URL` is baked into the bundle.
+
+**Option B — Manual**
+
+1. **Web Service**: Root directory `backend`, build `pip install -r requirements.txt`, start `uvicorn app.main:app --host 0.0.0.0 --port $PORT`, runtime Python 3.12.
+2. **Static Site**: Root directory `frontend`, build `npm install && npm run build`, publish `frontend/dist`.
+3. Add the same env vars as in Option A.
+
+## API notes
+
+- Seedance is asynchronous; the adapter polls until success, failure, or timeout. See BytePlus docs: [Create task](https://docs.byteplus.com/en/docs/ModelArk/1520757), [Retrieve task](https://docs.byteplus.com/en/docs/ModelArk/1521309). If response JSON differs for your account, adjust URL extraction in `backend/app/seedance.py` (marked with TODO).
+
+## License
+
+Use and modify freely for demos and internal tools.
