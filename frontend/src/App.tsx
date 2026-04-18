@@ -51,6 +51,23 @@ function variantDotClass(status: string): string {
   return 'running'
 }
 
+function operationalSummary(variantKey: string): {
+  safetyRisk: string
+  missionSuccess: string
+  intervention: string
+} {
+  switch (variantKey) {
+    case 'best_case':
+      return { safetyRisk: 'Low', missionSuccess: 'High', intervention: 'None' }
+    case 'worst_case':
+      return { safetyRisk: 'High', missionSuccess: 'Low', intervention: 'Immediate' }
+    case 'edge_case':
+      return { safetyRisk: 'Medium', missionSuccess: 'Medium', intervention: 'Likely' }
+    default:
+      return { safetyRisk: 'Unknown', missionSuccess: 'Unknown', intervention: 'Unknown' }
+  }
+}
+
 export default function App() {
   const [scenario, setScenario] = useState('')
   const [jobId, setJobId] = useState<string | null>(null)
@@ -118,12 +135,25 @@ export default function App() {
 
   return (
     <div className="page">
+      <div className="page-glow page-glow-a" />
+      <div className="page-glow page-glow-b" />
       <header className="hero">
-        <h1>ScenarioSim</h1>
-        <p>
-          Describe a real-world situation. We generate multiple short outcome simulations, compare them, and
-          suggest which trajectory is strongest for your goals.
-        </p>
+        <div className="hero-copy">
+          <span className="eyebrow">Track 4 · qualitative simulation</span>
+          <h1>ScenarioSim</h1>
+          <p>
+            Turn one operational situation into three short, decision-ready outcome clips: best case, worst case,
+            and the edge path teams forget to plan for.
+          </p>
+        </div>
+        <div className="hero-card">
+          <span className="hero-card-label">What you get</span>
+          <ul>
+            <li>Three comparable video branches</li>
+            <li>Recommendation for decision-making</li>
+            <li>Track 4 export with provenance + weak labels</li>
+          </ul>
+        </div>
         <div className="badge-row">
           {job?.demo_mode ? (
             <span className="badge">Demo mode · sample video URLs</span>
@@ -212,6 +242,44 @@ export default function App() {
             </div>
           ) : null}
 
+          <div className="scorecard">
+            <div className="scorecard-head">
+              <div>
+                <h3>Decision summary</h3>
+                <p>Weak operational tags that help a team triage each branch quickly.</p>
+              </div>
+            </div>
+            <div className="scorecard-grid">
+              {job.variants.map((v) => {
+                const summary = operationalSummary(v.variant_key)
+                return (
+                  <article key={`${v.variant_key}-summary`} className="scorecard-item">
+                    <div className="scorecard-item-head">
+                      <strong>{v.label}</strong>
+                      <span className={`pill subtle ${v.status === 'ok' ? 'ok' : v.status === 'failed' ? 'fail' : ''}`}>
+                        {v.status}
+                      </span>
+                    </div>
+                    <dl>
+                      <div>
+                        <dt>Safety risk</dt>
+                        <dd>{summary.safetyRisk}</dd>
+                      </div>
+                      <div>
+                        <dt>Mission success</dt>
+                        <dd>{summary.missionSuccess}</dd>
+                      </div>
+                      <div>
+                        <dt>Intervention</dt>
+                        <dd>{summary.intervention}</dd>
+                      </div>
+                    </dl>
+                  </article>
+                )
+              })}
+            </div>
+          </div>
+
           <div className="grid">
             {job.variants.map((v) => {
               const isReco =
@@ -233,8 +301,8 @@ export default function App() {
                   )}
                   <div className="card-body">
                     {v.mock_fallback
-                      ? 'Played a fallback sample clip because the provider call did not return a video for this variant.'
-                      : 'Short simulated outcome for this branch of the scenario.'}
+                      ? 'Fallback clip used so the branch still completes for review.'
+                      : 'Short simulated branch for comparison and review.'}
                   </div>
                 </article>
               )

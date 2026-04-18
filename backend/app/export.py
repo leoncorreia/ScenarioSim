@@ -17,6 +17,13 @@ OUTCOME_META: dict[str, dict[str, str]] = {
     "edge_case": {"outcome_axis": "ambiguous", "weak_supervision_label": "mixed"},
 }
 
+OPERATIONAL_TAGS: dict[str, dict[str, str]] = {
+    # These are weak, human-facing tags (not ground truth). They help teams triage branches quickly.
+    "best_case": {"safety_risk": "low", "mission_success": "high", "intervention": "none"},
+    "worst_case": {"safety_risk": "high", "mission_success": "low", "intervention": "immediate"},
+    "edge_case": {"safety_risk": "medium", "mission_success": "medium", "intervention": "likely"},
+}
+
 
 def _enrich_variant(v: dict[str, Any], index: int) -> dict[str, Any]:
     key = str(v.get("variant_key") or "")
@@ -24,10 +31,15 @@ def _enrich_variant(v: dict[str, Any], index: int) -> dict[str, Any]:
         key,
         {"outcome_axis": "unknown", "weak_supervision_label": "unknown"},
     )
+    ops = OPERATIONAL_TAGS.get(
+        key,
+        {"safety_risk": "unknown", "mission_success": "unknown", "intervention": "unknown"},
+    )
     row = {**v, "variant_index": index}
     row["track4"] = {
         "outcome_axis": meta["outcome_axis"],
         "weak_supervision_label": meta["weak_supervision_label"],
+        "operational_tags": ops,
         "notes": "Generative video; not physics simulation. Labels are scenario-role hints only.",
     }
     return row
