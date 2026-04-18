@@ -29,6 +29,21 @@ class Settings(BaseSettings):
     seedance_seed: int | None = None
     batch_jobs_max: int = 25
 
+    # Persistence: SQLite file locally, or PostgreSQL on Render (DATABASE_URL).
+    database_url: str = "sqlite:///./scenariosim.db"
+    # Used in webhook payloads as absolute export URL (set on Render to your API public URL).
+    public_api_base_url: str = ""
+
+    # Optional S3-compatible bucket (R2, AWS, MinIO) for Track 4 JSON artifacts.
+    s3_bucket: str = ""
+    s3_endpoint_url: str = ""
+    s3_region: str = ""
+    s3_access_key: str = ""
+    s3_secret_key: str = ""
+    s3_key_prefix: str = "scenariosim"
+    s3_public_base_url: str = ""
+    s3_presign_seconds: int = 604800
+
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
     # Recommendation blurbs: ModelArk Chat API, same key as Seedance (not Seedance video IDs).

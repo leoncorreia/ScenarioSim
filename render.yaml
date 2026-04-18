@@ -9,6 +9,10 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: PUBLIC_API_BASE_URL
+        sync: false
       - key: BYTEPLUS_API_KEY
         sync: false
       - key: BYTEPLUS_BASE_URL

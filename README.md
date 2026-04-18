@@ -8,7 +8,10 @@
 - Async jobs: `POST /api/jobs` returns immediately; the UI polls `GET /api/jobs/{id}`.
 - BytePlus Seedance integration behind a small adapter (create task → poll → video URL) with **demo mode** and **per-variant mock fallback** when the provider errors.
 - Three variants: **Best case**, **Worst case**, **Edge case**; recommendation block highlights the preferred outcome card.
-- No auth, in-memory job store (resets on restart).
+- **Persistent jobs**: SQLite by default (`scenariosim.db` in `backend/`), or **PostgreSQL** via `DATABASE_URL` (recommended on Render). Survives process restarts.
+- **Webhooks**: optional `webhook_url` on `POST /api/jobs` / `batch` — server POSTs `job.completed` or `job.failed` with export links.
+- **Optional S3/R2**: upload Track 4 JSON to a bucket for data-lake workflows.
+- No auth (add your gateway in production).
 
 ## Track 4: Physical AI + simulation (structured export)
 
@@ -21,7 +24,9 @@ ScenarioSim fits **qualitative** simulation: synthetic **RGB** clips + **weak la
 | **Dataset-style JSON** | `GET /api/jobs/{id}/export` returns `scenariosim-track4-v1`: job metadata, each variant with `video_url`, full prompt, `generation_seed`, and `track4.outcome_axis` / `weak_supervision_label` (favorable / adverse / ambiguous). |
 | **Provenance** | `provenance` block records model IDs, duration, resolution, LLM settings, optional seed base, and an explicit disclaimer. |
 | **Reproducibility** | Set `SEEDANCE_SEED` (non-negative int). Variant *k* uses seed `SEEDANCE_SEED + k` when calling Seedance (if the API accepts `seed`). Omit for provider-random. |
-| **Batch enqueue** | `POST /api/jobs/batch` with body `{"scenarios": ["...", "..."]}` enqueues up to `BATCH_JOBS_MAX` (default 25) independent jobs; poll each `job_id` as usual. |
+| **Batch enqueue** | `POST /api/jobs/batch` with body `{"scenarios": ["...", "..."], "webhook_url": "https://..." (optional)}` enqueues up to `BATCH_JOBS_MAX` (default 25) independent jobs. |
+| **Webhooks** | JSON POST to your URL when a job finishes: `event`, `job_id`, `status`, `export_api_url`, `export_s3_url` (if configured). Set **`PUBLIC_API_BASE_URL`** on the API so `export_api_url` is absolute. |
+| **S3-compatible storage** | If `S3_BUCKET` + credentials are set, each completed run uploads `track4/{job_id}.json`; URL stored on the job and in export. |
 
 **Honest limits**
 
@@ -38,7 +43,12 @@ curl -s "https://your-api.onrender.com/api/jobs/JOB_ID/export" | jq .
 # Batch (then poll each job_id)
 curl -s -X POST "https://your-api.onrender.com/api/jobs/batch" \
   -H "Content-Type: application/json" \
-  -d '{"scenarios":["Scenario A...","Scenario B..."]}'
+  -d '{"scenarios":["Scenario A...","Scenario B..."],"webhook_url":"https://example.com/hooks/scenariosim"}'
+
+# Single job with webhook
+curl -s -X POST "https://your-api.onrender.com/api/jobs" \
+  -H "Content-Type: application/json" \
+  -d '{"scenario":"Your scenario...","webhook_url":"https://example.com/hook"}'
 ```
 
 The web UI links to **Export JSON** when results are shown.
@@ -96,6 +106,10 @@ See root `.env.example`. Minimum notes:
 | `LLM_BASE_URL` | Only when `LLM_PROVIDER=openai` (default OpenAI v1 base) |
 | `SEEDANCE_SEED` | Optional int ≥ 0 for reproducible clips (`+ variant_index` per branch). Omit for random. |
 | `BATCH_JOBS_MAX` | Cap for `POST /api/jobs/batch` (default 25). |
+| `DATABASE_URL` | Default `sqlite:///./scenariosim.db`. On Render, use the **PostgreSQL** connection string from the dashboard. |
+| `PUBLIC_API_BASE_URL` | Public origin of this API (e.g. `https://scenariosim-api.onrender.com`) — used in webhook payloads for absolute `export_api_url`. |
+| `S3_BUCKET`, `S3_ENDPOINT_URL`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_REGION` | Optional; R2/AWS/MinIO. Set `S3_PUBLIC_BASE_URL` if objects are public, else a presigned GET URL is stored (see `S3_PRESIGN_SECONDS`). |
+| `S3_KEY_PREFIX` | Object key prefix (default `scenariosim`). |
 
 Frontend build (production): set `VITE_API_URL` to your backend origin, e.g. `https://your-api.onrender.com` (no trailing slash).
 

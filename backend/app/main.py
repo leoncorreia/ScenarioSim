@@ -1,11 +1,13 @@
 import logging
+from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, HttpUrl
 
 from app.config import get_settings
+from app.database import db_ping, init_db
 from app.export import build_track4_export
 from app.jobs import create_job, create_jobs_batch, get_job
 
@@ -14,7 +16,14 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="ScenarioSim API", version="0.2.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    yield
+
+
+app = FastAPI(title="ScenarioSim API", version="0.3.0", lifespan=lifespan)
 
 _settings = get_settings()
 _origins = [o.strip() for o in _settings.cors_origins.split(",") if o.strip()]
@@ -29,10 +38,12 @@ app.add_middleware(
 
 class CreateJobBody(BaseModel):
     scenario: str = Field(min_length=3, max_length=4000)
+    webhook_url: HttpUrl | None = Field(default=None, description="POST job.completed | job.failed when the run ends")
 
 
 class BatchJobsBody(BaseModel):
     scenarios: list[str] = Field(min_length=1, description="Each string is one independent scenario job")
+    webhook_url: HttpUrl | None = Field(default=None, description="Applied to every job in this batch")
 
 
 @app.get("/")
@@ -40,7 +51,7 @@ async def root():
     """Avoid 404 when opening the service URL in a browser; all API routes live under /api/."""
     return {
         "service": "ScenarioSim API",
-        "version": "0.2.0",
+        "version": "0.3.0",
         "docs": "/docs",
         "health": "/api/health",
         "track4_export": "/api/jobs/{job_id}/export",
@@ -52,12 +63,17 @@ async def root():
 async def health():
     s = get_settings()
     demo = s.demo_mode or not s.byteplus_api_key.strip()
-    return {"ok": True, "demo_mode": demo}
+    return {
+        "ok": True,
+        "demo_mode": demo,
+        "database": db_ping(),
+    }
 
 
 @app.post("/api/jobs")
 async def post_job(body: CreateJobBody):
-    job = await create_job(body.scenario)
+    wh = str(body.webhook_url) if body.webhook_url else None
+    job = await create_job(body.scenario, webhook_url=wh)
     return {
         "job_id": job.id,
         "status": job.status,
@@ -78,8 +94,9 @@ async def post_jobs_batch(body: BatchJobsBody):
         cleaned.append(s)
     if not cleaned:
         raise HTTPException(status_code=400, detail="at least one non-empty scenario required")
+    wh = str(body.webhook_url) if body.webhook_url else None
     try:
-        return await create_jobs_batch(cleaned)
+        return await create_jobs_batch(cleaned, webhook_url=wh)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
@@ -100,6 +117,7 @@ async def read_job(job_id: str):
         "recommendation": job.recommendation,
         "recommended_label": job.recommended_label,
         "error": job.error,
+        "export_s3_url": job.export_s3_url,
     }
 
 

@@ -3,19 +3,18 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from typing import Any
 
 from app.config import Settings, get_settings
+from app.db_jobs import fetch_job_record, insert_job_row, update_job_row
+from app.export import build_track4_export
+from app.job_types import JobRecord
 from app.recommend import llm_recommendation, rule_based_recommendation
 from app.seedance import MockVideoGenerator, VideoGenerator, get_generator, poll_until_video
+from app.storage_export import upload_track4_export_if_configured
+from app.webhooks import deliver_job_webhook
 
 logger = logging.getLogger(__name__)
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 # Reduces “random B-roll”: Seedance only sees text—constraints must be explicit in the prompt.
@@ -61,7 +60,6 @@ VARIANT_DEFS = [
 
 
 def video_seed_for_variant(settings: Settings, variant_index: int) -> int | None:
-    """BytePlus: optional fixed seed; variant_index disambiguates the three clips in one job."""
     base = settings.seedance_seed
     if base is None or base < 0:
         return None
@@ -88,50 +86,27 @@ def build_prompts(scenario: str) -> list[dict[str, str]]:
     return out
 
 
-@dataclass
-class JobRecord:
-    id: str
-    scenario: str
-    status: str
-    created_at: str
-    updated_at: str
-    demo_mode: bool
-    variants: list[dict[str, Any]] = field(default_factory=list)
-    recommendation: str | None = None
-    recommended_label: str | None = None
-    error: str | None = None
+async def _persist(job_id: str, **fields: Any) -> None:
+    await asyncio.to_thread(update_job_row, job_id, **fields)
 
 
-JOBS: dict[str, JobRecord] = {}
-_LOCK = asyncio.Lock()
-
-
-async def create_job(scenario: str) -> JobRecord:
+async def create_job(scenario: str, webhook_url: str | None = None) -> JobRecord:
     settings = get_settings()
     job_id = uuid.uuid4().hex
-    now = _utc_now()
     demo = settings.demo_mode or not settings.byteplus_api_key.strip()
-    record = JobRecord(
-        id=job_id,
-        scenario=scenario.strip(),
-        status="queued",
-        created_at=now,
-        updated_at=now,
-        demo_mode=demo,
-        variants=[],
-    )
-    async with _LOCK:
-        JOBS[job_id] = record
+    await asyncio.to_thread(insert_job_row, job_id, scenario.strip(), demo_mode=demo, webhook_url=webhook_url)
     asyncio.create_task(_run_job(job_id))
-    return record
+    rec = fetch_job_record(job_id)
+    if not rec:
+        raise RuntimeError("failed to persist job")
+    return rec
 
 
 def get_job(job_id: str) -> JobRecord | None:
-    return JOBS.get(job_id)
+    return fetch_job_record(job_id)
 
 
-async def create_jobs_batch(scenarios: list[str]) -> dict[str, Any]:
-    """Enqueue multiple independent jobs (same scenario pipeline each)."""
+async def create_jobs_batch(scenarios: list[str], webhook_url: str | None = None) -> dict[str, Any]:
     settings = get_settings()
     if len(scenarios) > settings.batch_jobs_max:
         raise ValueError(
@@ -139,7 +114,7 @@ async def create_jobs_batch(scenarios: list[str]) -> dict[str, Any]:
         )
     jobs_out: list[dict[str, Any]] = []
     for s in scenarios:
-        job = await create_job(s)
+        job = await create_job(s, webhook_url=webhook_url)
         jobs_out.append(
             {
                 "job_id": job.id,
@@ -153,16 +128,19 @@ async def create_jobs_batch(scenarios: list[str]) -> dict[str, Any]:
 
 async def _run_job(job_id: str) -> None:
     settings = get_settings()
-    record = JOBS.get(job_id)
+    record = fetch_job_record(job_id)
     if not record:
         return
 
-    def touch() -> None:
-        record.updated_at = _utc_now()
+    async def touch_variants(results: list[dict[str, Any]], status: str | None = None) -> None:
+        payload: dict[str, Any] = {"variants_json": list(results)}
+        if status is not None:
+            payload["status"] = status
+        await _persist(job_id, **payload)
 
     try:
-        record.status = "running"
-        touch()
+        await _persist(job_id, status="running")
+
         gen = get_generator(settings)
         prompts = build_prompts(record.scenario)
         results: list[dict[str, Any]] = []
@@ -181,8 +159,7 @@ async def _run_job(job_id: str) -> None:
                 "generation_seed": seed_used,
             }
             results.append(variant)
-            record.variants = list(results)
-            touch()
+            await touch_variants(results)
 
             async def run_variant(active_gen: VideoGenerator) -> None:
                 if isinstance(active_gen, MockVideoGenerator):
@@ -193,8 +170,7 @@ async def _run_job(job_id: str) -> None:
                 )
                 variant["provider_task_id"] = task_id
                 variant["status"] = "generating"
-                record.variants = list(results)
-                touch()
+                await touch_variants(results)
 
                 snap = await poll_until_video(
                     active_gen,
@@ -231,17 +207,29 @@ async def _run_job(job_id: str) -> None:
                     variant["status"] = "failed"
                     variant["error"] = str(e2)
 
-            record.variants = list(results)
-            touch()
+            await touch_variants(results)
 
         llm_text = await llm_recommendation(settings, record.scenario, results)
         summary, label = rule_based_recommendation(record.scenario, results)
-        record.recommendation = llm_text or summary
-        record.recommended_label = label
-        record.status = "completed"
-        touch()
+        await _persist(
+            job_id,
+            status="completed",
+            variants_json=results,
+            recommendation=llm_text or summary,
+            recommended_label=label,
+        )
+
+        rec_done = fetch_job_record(job_id)
+        if rec_done:
+            export_payload = build_track4_export(rec_done, settings)
+            s3_url, s3_key = await asyncio.to_thread(
+                upload_track4_export_if_configured, settings, job_id, export_payload
+            )
+            if s3_url:
+                await _persist(job_id, export_s3_url=s3_url, export_s3_key=s3_key)
+
+        await deliver_job_webhook(job_id, "job.completed", settings)
     except Exception as e:
         logger.exception("Job failed")
-        record.status = "failed"
-        record.error = str(e)
-        touch()
+        await _persist(job_id, status="failed", error=str(e))
+        await deliver_job_webhook(job_id, "job.failed", settings)
