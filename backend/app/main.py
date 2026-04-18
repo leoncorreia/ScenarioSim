@@ -6,14 +6,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from app.config import get_settings
-from app.jobs import create_job, get_job
+from app.export import build_track4_export
+from app.jobs import create_job, create_jobs_batch, get_job
 
 load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="ScenarioSim API", version="0.1.0")
+app = FastAPI(title="ScenarioSim API", version="0.2.0")
 
 _settings = get_settings()
 _origins = [o.strip() for o in _settings.cors_origins.split(",") if o.strip()]
@@ -30,6 +31,23 @@ class CreateJobBody(BaseModel):
     scenario: str = Field(min_length=3, max_length=4000)
 
 
+class BatchJobsBody(BaseModel):
+    scenarios: list[str] = Field(min_length=1, description="Each string is one independent scenario job")
+
+
+@app.get("/")
+async def root():
+    """Avoid 404 when opening the service URL in a browser; all API routes live under /api/."""
+    return {
+        "service": "ScenarioSim API",
+        "version": "0.2.0",
+        "docs": "/docs",
+        "health": "/api/health",
+        "track4_export": "/api/jobs/{job_id}/export",
+        "batch_jobs": "POST /api/jobs/batch",
+    }
+
+
 @app.get("/api/health")
 async def health():
     s = get_settings()
@@ -40,7 +58,30 @@ async def health():
 @app.post("/api/jobs")
 async def post_job(body: CreateJobBody):
     job = await create_job(body.scenario)
-    return {"job_id": job.id, "status": job.status, "demo_mode": job.demo_mode}
+    return {
+        "job_id": job.id,
+        "status": job.status,
+        "demo_mode": job.demo_mode,
+        "export_path": f"/api/jobs/{job.id}/export",
+    }
+
+
+@app.post("/api/jobs/batch")
+async def post_jobs_batch(body: BatchJobsBody):
+    cleaned: list[str] = []
+    for raw in body.scenarios:
+        s = (raw or "").strip()
+        if len(s) < 3:
+            raise HTTPException(status_code=400, detail="Each scenario must be at least 3 characters")
+        if len(s) > 4000:
+            raise HTTPException(status_code=400, detail="Each scenario must be at most 4000 characters")
+        cleaned.append(s)
+    if not cleaned:
+        raise HTTPException(status_code=400, detail="at least one non-empty scenario required")
+    try:
+        return await create_jobs_batch(cleaned)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @app.get("/api/jobs/{job_id}")
@@ -60,6 +101,15 @@ async def read_job(job_id: str):
         "recommended_label": job.recommended_label,
         "error": job.error,
     }
+
+
+@app.get("/api/jobs/{job_id}/export")
+async def export_job(job_id: str):
+    """Track 4: JSON bundle with weak labels + provenance for pipeline / dataset tooling."""
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return build_track4_export(job, get_settings())
 
 
 @app.get("/api/demo-scenarios")

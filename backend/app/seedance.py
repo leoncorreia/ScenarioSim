@@ -47,8 +47,8 @@ class TaskSnapshot:
 
 class VideoGenerator(ABC):
     @abstractmethod
-    async def create_text_to_video_task(self, prompt: str) -> str:
-        """Return provider task id."""
+    async def create_text_to_video_task(self, prompt: str, *, seed: int | None = None) -> str:
+        """Return provider task id. Optional seed for reproducibility (provider-dependent)."""
 
     @abstractmethod
     async def get_task(self, task_id: str) -> TaskSnapshot:
@@ -91,7 +91,7 @@ class MockVideoGenerator(VideoGenerator):
     def __init__(self, settings: Settings):
         self._settings = settings
 
-    async def create_text_to_video_task(self, prompt: str) -> str:
+    async def create_text_to_video_task(self, prompt: str, *, seed: int | None = None) -> str:
         await asyncio.sleep(0.4 + random.random() * 0.4)
         return f"mock-{uuid.uuid4().hex[:12]}"
 
@@ -118,9 +118,9 @@ class BytePlusSeedanceGenerator(VideoGenerator):
             "Content-Type": "application/json",
         }
 
-    async def create_text_to_video_task(self, prompt: str) -> str:
+    async def create_text_to_video_task(self, prompt: str, *, seed: int | None = None) -> str:
         url = f"{self._base}/contents/generations/tasks"
-        body = {
+        body: dict[str, Any] = {
             "model": self._settings.seedance_model,
             "content": [{"type": "text", "text": prompt}],
             "ratio": self._settings.video_ratio,
@@ -128,6 +128,8 @@ class BytePlusSeedanceGenerator(VideoGenerator):
             "resolution": self._settings.video_resolution,
             "generate_audio": self._settings.generate_audio,
         }
+        if seed is not None:
+            body["seed"] = seed
         async with httpx.AsyncClient(timeout=60.0) as client:
             r = await client.post(url, headers=self._headers(), json=body)
             try:

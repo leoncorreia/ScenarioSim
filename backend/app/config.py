@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     seedance_model: str = "dreamina-seedance-2-0-260128"
     video_ratio: str = "16:9"
     # Dreamina Seedance 2.0: duration 4–15 s per ModelArk model list.
-    video_duration: int = 5
+    video_duration: int = 6
     # 2.0 supports 480p / 720p (not 1080p like some 1.x models).
     video_resolution: str = "720p"
     generate_audio: bool = True
@@ -25,10 +25,13 @@ class Settings(BaseSettings):
     poll_interval_sec: float = 2.0
     poll_max_attempts: int = 120
 
+    # Optional reproducibility: non-negative int → passed to Seedance as seed+variant_index; omit if unset.
+    seedance_seed: int | None = None
+    batch_jobs_max: int = 25
+
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
-    # Recommendation blurbs: default uses ModelArk Chat API with the same key as Seedance.
-    # Video = Seedance; text = a Seed / chat model ID from the model list (not a Seedance ID).
+    # Recommendation blurbs: ModelArk Chat API, same key as Seedance (not Seedance video IDs).
     llm_provider: str = "byteplus"
     llm_api_key: str = Field(
         default="",

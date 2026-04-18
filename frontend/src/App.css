@@ -208,6 +208,15 @@ button.ghost {
   margin: 0 0 1rem;
 }
 
+.export-link {
+  margin: 0 0 1rem;
+  font-size: 0.875rem;
+}
+
+.export-link a {
+  color: #93c5fd;
+}
+
 .reco {
   border-radius: 14px;
   padding: 1rem 1.1rem;

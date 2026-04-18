@@ -18,21 +18,34 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# Reduces “random B-roll”: Seedance only sees text—constraints must be explicit in the prompt.
+_VISUAL_GROUNDING = (
+    "Visual fidelity: Depict exactly what the scenario describes (place, weather, stakes). "
+    "Use coherent real-world layout—lanes, curbs, crosswalk markings, traffic lights—when the scene is a city street. "
+    "Do not substitute unrelated generic footage."
+)
+
 VARIANT_DEFS = [
     {
         "variant_key": "best_case",
         "label": "Best case",
         "suffix": (
-            "Simulate the most favorable realistic resolution: stakeholders align, timing works, "
-            "and the outcome clearly succeeds. Cinematic, grounded, documentary tone."
+            "Simulate the most favorable realistic resolution: timing works and the outcome clearly succeeds. "
+            "Show the full arc from setup through completion—the viewer must see the successful end state on screen. "
+            "For crossings and traffic, show the **safest plausible, rule-compliant** behavior the scenario implies "
+            "(e.g. marked crosswalk and walk signal for a successful lawful crossing—not mid-block jaywalking). "
+            "Cinematic, grounded, documentary tone."
         ),
     },
     {
         "variant_key": "worst_case",
         "label": "Worst case",
         "suffix": (
-            "Simulate a plausible failure mode: miscommunication, delay, or key risk materializes. "
-            "Keep it realistic, not cartoonish. Show consequences clearly."
+            "**This variant must show the BAD outcome only—do not depict a safe or successful resolution.** "
+            "If the scenario involves crossing traffic, you must **not** show a calm, uneventful crossing on a green "
+            "walk signal; show concrete peril: e.g. conflict with a moving vehicle, near-miss, loss of footing in rain, "
+            "stepping as a car turns, running a stale signal, or another visible failure tied to the scenario. "
+            "The viewer should clearly see **what went wrong** by the end of the clip. Realistic, not cartoon gore."
         ),
     },
     {
@@ -40,10 +53,19 @@ VARIANT_DEFS = [
         "label": "Edge case",
         "suffix": (
             "Simulate an unusual but realistic edge scenario: a rare constraint, odd timing, or "
-            "ambiguous signal changes the trajectory. Show how the situation evolves."
+            "ambiguous signal changes the trajectory. Show how the situation evolves without contradicting "
+            "the scenario’s setting."
         ),
     },
 ]
+
+
+def video_seed_for_variant(settings: Settings, variant_index: int) -> int | None:
+    """BytePlus: optional fixed seed; variant_index disambiguates the three clips in one job."""
+    base = settings.seedance_seed
+    if base is None or base < 0:
+        return None
+    return base + variant_index
 
 
 def build_prompts(scenario: str) -> list[dict[str, str]]:
@@ -51,8 +73,10 @@ def build_prompts(scenario: str) -> list[dict[str, str]]:
     for v in VARIANT_DEFS:
         prompt = (
             f"Scenario: {scenario.strip()}\n\n"
+            f"{_VISUAL_GROUNDING}\n\n"
             f"Variant intent: {v['label']}.\n{v['suffix']}\n\n"
-            "Output: a single coherent short scene (no narration text on screen required)."
+            "Output: one coherent short scene with a clear beginning, middle, and end so the result is visible "
+            "before the clip ends. No on-screen captions or subtitles."
         )
         out.append(
             {
@@ -106,6 +130,27 @@ def get_job(job_id: str) -> JobRecord | None:
     return JOBS.get(job_id)
 
 
+async def create_jobs_batch(scenarios: list[str]) -> dict[str, Any]:
+    """Enqueue multiple independent jobs (same scenario pipeline each)."""
+    settings = get_settings()
+    if len(scenarios) > settings.batch_jobs_max:
+        raise ValueError(
+            f"at most {settings.batch_jobs_max} scenarios per batch (set BATCH_JOBS_MAX to raise)"
+        )
+    jobs_out: list[dict[str, Any]] = []
+    for s in scenarios:
+        job = await create_job(s)
+        jobs_out.append(
+            {
+                "job_id": job.id,
+                "status": job.status,
+                "demo_mode": job.demo_mode,
+                "export_path": f"/api/jobs/{job.id}/export",
+            }
+        )
+    return {"batch_size": len(jobs_out), "jobs": jobs_out}
+
+
 async def _run_job(job_id: str) -> None:
     settings = get_settings()
     record = JOBS.get(job_id)
@@ -122,7 +167,8 @@ async def _run_job(job_id: str) -> None:
         prompts = build_prompts(record.scenario)
         results: list[dict[str, Any]] = []
 
-        for p in prompts:
+        for variant_index, p in enumerate(prompts):
+            seed_used = video_seed_for_variant(settings, variant_index)
             variant: dict[str, Any] = {
                 "variant_key": p["variant_key"],
                 "label": p["label"],
@@ -132,6 +178,7 @@ async def _run_job(job_id: str) -> None:
                 "provider_task_id": None,
                 "error": None,
                 "mock_fallback": False,
+                "generation_seed": seed_used,
             }
             results.append(variant)
             record.variants = list(results)
@@ -140,7 +187,10 @@ async def _run_job(job_id: str) -> None:
             async def run_variant(active_gen: VideoGenerator) -> None:
                 if isinstance(active_gen, MockVideoGenerator):
                     await asyncio.sleep(0.1)
-                task_id = await active_gen.create_text_to_video_task(p["prompt"])
+                task_id = await active_gen.create_text_to_video_task(
+                    p["prompt"],
+                    seed=seed_used,
+                )
                 variant["provider_task_id"] = task_id
                 variant["status"] = "generating"
                 record.variants = list(results)

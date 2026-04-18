@@ -10,6 +10,39 @@
 - Three variants: **Best case**, **Worst case**, **Edge case**; recommendation block highlights the preferred outcome card.
 - No auth, in-memory job store (resets on restart).
 
+## Track 4: Physical AI + simulation (structured export)
+
+ScenarioSim fits **qualitative** simulation: synthetic **RGB** clips + **weak labels** for scenario libraries, red-teaming narratives, and pipeline prototyping—not a replacement for physics simulators (MuJoCo, Isaac, CARLA) or ground-truth dynamics.
+
+**What we added**
+
+| Capability | How |
+| --- | --- |
+| **Dataset-style JSON** | `GET /api/jobs/{id}/export` returns `scenariosim-track4-v1`: job metadata, each variant with `video_url`, full prompt, `generation_seed`, and `track4.outcome_axis` / `weak_supervision_label` (favorable / adverse / ambiguous). |
+| **Provenance** | `provenance` block records model IDs, duration, resolution, LLM settings, optional seed base, and an explicit disclaimer. |
+| **Reproducibility** | Set `SEEDANCE_SEED` (non-negative int). Variant *k* uses seed `SEEDANCE_SEED + k` when calling Seedance (if the API accepts `seed`). Omit for provider-random. |
+| **Batch enqueue** | `POST /api/jobs/batch` with body `{"scenarios": ["...", "..."]}` enqueues up to `BATCH_JOBS_MAX` (default 25) independent jobs; poll each `job_id` as usual. |
+
+**Honest limits**
+
+- Single short clip per variant; no built-in depth/LiDAR/segmentation.
+- Generative video is **not** physics-accurate; labels are **role hints** from scenario design, not measured outcomes.
+- Provider safety filters may soften extreme “failure” visuals.
+
+**Examples**
+
+```bash
+# After a job completes
+curl -s "https://your-api.onrender.com/api/jobs/JOB_ID/export" | jq .
+
+# Batch (then poll each job_id)
+curl -s -X POST "https://your-api.onrender.com/api/jobs/batch" \
+  -H "Content-Type: application/json" \
+  -d '{"scenarios":["Scenario A...","Scenario B..."]}'
+```
+
+The web UI links to **Export JSON** when results are shown.
+
 ## Sample scenarios (demo)
 
 1. A startup has 30 days of runway and must choose between a risky enterprise pilot or a slower SMB growth path.
@@ -52,14 +85,17 @@ See root `.env.example`. Minimum notes:
 | --- | --- |
 | `BYTEPLUS_API_KEY` or `ARK_API_KEY` | BytePlus ModelArk key for Seedance |
 | `BYTEPLUS_BASE_URL` | Default `https://ark.ap-southeast.bytepluses.com/api/v3` |
-| `SEEDANCE_MODEL` | Dreamina Seedance 2.0 IDs from the [model list](https://docs.byteplus.com/en/docs/ModelArk/1330310): `dreamina-seedance-2-0-260128` or `dreamina-seedance-2-0-fast-260128` |
+| `SEEDANCE_MODEL` | Dreamina Seedance 2.0 IDs from the [model list](https://docs.byteplus.com/en/docs/ModelArk/1330310): e.g. `dreamina-seedance-2-0-260128` or `dreamina-seedance-2-0-fast-260128` |
+| `VIDEO_DURATION` | Optional override; default **6** s (Seedance 2.0 allows 4–15). Longer clips can show a clearer beginning-to-end arc. |
 | `DEMO_MODE` | `true` forces mock clips end-to-end |
 | `FALLBACK_MOCK_ON_ERROR` | `true` swaps failed variants to sample MP4s |
 | `CORS_ORIGINS` | Comma-separated allowed frontend origins |
 | `LLM_PROVIDER` | `byteplus` (default): same `BYTEPLUS_API_KEY` and `BYTEPLUS_BASE_URL`, `POST .../chat/completions`. `openai`: use `LLM_API_KEY` + `LLM_BASE_URL`. |
-| `LLM_MODEL` | Default `seed-2-0-lite-260228` (ModelArk text model). For `openai`, use e.g. `gpt-4o-mini`. **Do not** use a Seedance video model ID here. |
+| `LLM_MODEL` | Default `seed-2-0-lite-260228` (ModelArk text model). For `openai`, e.g. `gpt-4o-mini`. **Do not** use a Seedance video ID here. |
 | `LLM_API_KEY` / `OPENAI_API_KEY` | Only when `LLM_PROVIDER=openai` |
 | `LLM_BASE_URL` | Only when `LLM_PROVIDER=openai` (default OpenAI v1 base) |
+| `SEEDANCE_SEED` | Optional int ≥ 0 for reproducible clips (`+ variant_index` per branch). Omit for random. |
+| `BATCH_JOBS_MAX` | Cap for `POST /api/jobs/batch` (default 25). |
 
 Frontend build (production): set `VITE_API_URL` to your backend origin, e.g. `https://your-api.onrender.com` (no trailing slash).
 

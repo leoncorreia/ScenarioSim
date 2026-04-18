@@ -198,6 +198,13 @@ export default function App() {
       {showResults && job ? (
         <section className="results">
           <h2>Outcomes</h2>
+          {jobId ? (
+            <p className="export-link">
+              <a href={`${apiBase}/api/jobs/${jobId}/export`} target="_blank" rel="noreferrer">
+                Export run as JSON (Track 4 — weak labels + provenance)
+              </a>
+            </p>
+          ) : null}
           {job.recommendation ? (
             <div className="reco">
               <h3>Recommendation</h3>
@@ -237,8 +244,8 @@ export default function App() {
       ) : null}
 
       <p className="footer-note">
-        Async job flow: the server enqueues work and you poll for completion. No auth; state is kept in memory and
-        resets on restart.
+        Async jobs; in-memory store (lost on restart). Track 4: use <strong>Export JSON</strong> for pipeline-friendly
+        bundles. Batch API: <code>POST /api/jobs/batch</code>.
       </p>
     </div>
   )
