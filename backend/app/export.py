@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.config import Settings
-from app.job_types import JobRecord
+from app.jobs import JobRecord
 
 TRACK4_EXPORT_FORMAT = "scenariosim-track4-v1"
 
@@ -48,13 +48,10 @@ def build_track4_export(job: JobRecord, settings: Settings) -> dict[str, Any]:
             "recommendation": job.recommendation,
             "recommended_label": job.recommended_label,
             "error": job.error,
-            "export_s3_url": job.export_s3_url,
-            "export_s3_key": job.export_s3_key,
         },
         "variants": variants,
         "provenance": {
-            "scenariosim_api_version": "0.3.0",
-            "persistence": "postgresql" if "postgres" in settings.database_url.lower() else "sqlite",
+            "scenariosim_api_version": "0.2.0",
             "seedance_model": settings.seedance_model,
             "video_duration_sec": settings.video_duration,
             "video_resolution": settings.video_resolution,
